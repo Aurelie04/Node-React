@@ -50,36 +50,28 @@ app.post('/login', (req, res) => {
   db.query(sql, [email], async (err, data) => {
     if (err) {
       console.error("DB Error:", err);
-      return res.status(500).json("Server error");
+      return res.status(500).json({ message: "Server error" });
     }
 
     if (data.length === 0) {
       console.log("No user found for", email);
-      return res.status(401).json("Invalid credentials");
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const user = data[0];
-    console.log("DB returned user:", user);
-
-    
-    console.log("Entered password:", password);
-    console.log("Stored hash:", user.password);
-
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
-    console.log("Password match:", isPasswordCorrect);
 
     if (!isPasswordCorrect) {
-      return res.status(401).json("Invalid credentials");
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    return res.json({
+    return res.status(200).json({
       message: "Login success",
       name: user.name,
       role: user.role
     });
   });
 });
-
 
 
 app.post("/forgot-password", (req, res) => {
