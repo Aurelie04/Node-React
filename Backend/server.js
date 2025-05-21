@@ -1,24 +1,52 @@
 const express = require("express");
 const mysql = require("mysql");
-const cors = require('cors');
+const cors = require("cors");
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve uploaded images
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// Ensure upload directory exists
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+// Configure multer for image uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  },
+});
+const upload = multer({ storage });
+
+// MySQL database connection
 const db = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    password: "",
-    database: "reactnodedb"
+  host: "localhost",
+  user: "root",
+  password: "",
+  database: "reactnodedb"
 });
 
+// Root test route
 app.get('/', (req, res) => {
-    res.send('Server is running!'); 
+  res.send('Server is running!');
 });
 
+// Signup route
 app.post('/signup', async (req, res) => {
   const hashedPassword = await bcrypt.hash(req.body.password, 10);
   const sql = "INSERT INTO usertable (`name`, `phoneNumber`, `address`, `business`, `email`, `password`, `role`) VALUES (?, ?, ?, ?, ?, ?, ?)";
@@ -34,16 +62,16 @@ app.post('/signup', async (req, res) => {
 
   db.query(sql, values, (err, data) => {
     if (err) {
-      console.error("Insert error:", err);  
+      console.error("Insert error:", err);
       return res.status(500).json("Error inserting user");
     }
     return res.status(201).json({ message: "User registered successfully" });
   });
 });
 
+// Login route
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
-  console.log("Attempting login for:", email);
 
   const sql = "SELECT * FROM usertable WHERE email = ?";
 
@@ -54,7 +82,6 @@ app.post('/login', (req, res) => {
     }
 
     if (data.length === 0) {
-      console.log("No user found for", email);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
@@ -73,11 +100,11 @@ app.post('/login', (req, res) => {
   });
 });
 
-
+// Forgot password route
 app.post("/forgot-password", (req, res) => {
   const { email } = req.body;
   const token = crypto.randomBytes(32).toString("hex");
-  const expires = new Date(Date.now() + 3600000); // expires in 1 hour
+  const expires = new Date(Date.now() + 3600000); // 1 hour
 
   db.query(
     "UPDATE usertable SET reset_token = ?, reset_token_expires = ? WHERE email = ?",
@@ -96,6 +123,7 @@ app.post("/forgot-password", (req, res) => {
   );
 });
 
+// Reset password route
 app.post("/reset-password/:token", async (req, res) => {
   const token = req.params.token;
   const { newPassword } = req.body;
@@ -124,6 +152,83 @@ app.post("/reset-password/:token", async (req, res) => {
   );
 });
 
+// POST /api/products – Add a new product
+app.post("/api/products", upload.single("image"), (req, res) => {
+  const { name, description, price, userId } = req.body;
+  const image = req.file.filename;
+
+  const sql = `
+    INSERT INTO products (name, description, price, image, userId)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  const values = [name, description, price, image, userId];
+
+  db.query(sql, values, (err, result) => {
+    if (err) {
+      console.error("Error inserting product:", err);
+      return res.status(500).json({ message: "Error adding product" });
+    }
+
+    res.status(201).json({
+      id: result.insertId,
+      name,
+      description,
+      price,
+      image,
+      userId,
+      image_url: `http://localhost:8081/uploads/${image}`
+    });
+  });
+});
+
+// GET /api/products?userId=123 – Fetch user-specific products
+app.get("/api/products", (req, res) => {
+  const userId = req.query.userId;
+
+  if (!userId) {
+    return res.status(400).json({ message: "Missing userId" });
+  }
+
+  const sql = `SELECT *, CONCAT('http://localhost:8081/uploads/', image) AS image_url FROM products WHERE userId = ?`;
+
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      console.error("Error fetching products:", err);
+      return res.status(500).json({ message: "Error fetching products" });
+    }
+
+    res.json(results);
+  });
+});
+
+// DELETE /api/products/:id – Delete a product
+app.delete("/api/products/:id", (req, res) => {
+  const productId = req.params.id;
+
+  db.query("SELECT image FROM products WHERE id = ?", [productId], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    const imageFilename = results[0].image;
+    const imagePath = path.join(__dirname, "uploads", imageFilename);
+
+    fs.unlink(imagePath, (fsErr) => {
+      if (fsErr && fsErr.code !== "ENOENT") {
+        console.error("Error deleting image file:", fsErr);
+      }
+    });
+
+    db.query("DELETE FROM products WHERE id = ?", [productId], (delErr) => {
+      if (delErr) {
+        return res.status(500).json({ message: "Error deleting product" });
+      }
+      res.json({ message: "Product deleted successfully" });
+    });
+  });
+});
+
+// Start the server
 app.listen(8081, () => {
   console.log("Backend listening on port 8081");
 });
