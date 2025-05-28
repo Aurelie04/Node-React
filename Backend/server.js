@@ -38,18 +38,19 @@ const db = mysql.createConnection({
   host: "localhost",
   user: "root",
   password: "",
-  database: "reactnodedb"
+  database: "reactnodedb",
 });
 
 // Root test route
-app.get('/', (req, res) => {
-  res.send('Server is running!');
+app.get("/", (req, res) => {
+  res.send("Server is running!");
 });
 
 // Signup route
-app.post('/signup', async (req, res) => {
+app.post("/signup", async (req, res) => {
   const hashedPassword = await bcrypt.hash(req.body.password, 10);
-  const sql = "INSERT INTO usertable (`name`, `phoneNumber`, `address`, `business`, `email`, `password`, `role`) VALUES (?, ?, ?, ?, ?, ?, ?)";
+  const sql =
+    "INSERT INTO usertable (`name`, `phoneNumber`, `address`, `business`, `email`, `password`, `role`) VALUES (?, ?, ?, ?, ?, ?, ?)";
   const values = [
     req.body.name,
     req.body.phoneNumber,
@@ -57,7 +58,7 @@ app.post('/signup', async (req, res) => {
     req.body.business,
     req.body.email,
     hashedPassword,
-    req.body.role
+    req.body.role,
   ];
 
   db.query(sql, values, (err, data) => {
@@ -70,9 +71,8 @@ app.post('/signup', async (req, res) => {
 });
 
 // Login route
-app.post('/login', (req, res) => {
+app.post("/login", (req, res) => {
   const { email, password } = req.body;
-
   const sql = "SELECT * FROM usertable WHERE email = ?";
 
   db.query(sql, [email], async (err, data) => {
@@ -94,8 +94,15 @@ app.post('/login', (req, res) => {
 
     return res.status(200).json({
       message: "Login success",
-      name: user.name,
-      role: user.role
+      user: {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        phoneNumber: user.phoneNumber,
+        address: user.address,
+        business: user.business,
+        email: user.email,
+      },
     });
   });
 });
@@ -117,7 +124,7 @@ app.post("/forgot-password", (req, res) => {
       const resetLink = `http://localhost:3000/reset-password/${token}`;
       res.json({
         message: "Password reset link (copy it):",
-        resetLink
+        resetLink,
       });
     }
   );
@@ -143,7 +150,10 @@ app.post("/reset-password/:token", async (req, res) => {
         "UPDATE usertable SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE email = ?",
         [hashedPassword, email],
         (err, updateResult) => {
-          if (err) return res.status(500).json({ error: "Could not update password" });
+          if (err)
+            return res
+              .status(500)
+              .json({ error: "Could not update password" });
 
           res.json({ message: "Password updated successfully" });
         }
@@ -152,7 +162,7 @@ app.post("/reset-password/:token", async (req, res) => {
   );
 });
 
-// POST /api/products – Add a new product
+// Add product
 app.post("/api/products", upload.single("image"), (req, res) => {
   const { name, description, price, userId } = req.body;
   const image = req.file.filename;
@@ -176,12 +186,13 @@ app.post("/api/products", upload.single("image"), (req, res) => {
       price,
       image,
       userId,
-      image_url: `http://localhost:8081/uploads/${image}`
+      image_url: `http://localhost:8081/uploads/${image}`,
     });
   });
 });
 
-// GET /api/products?userId=123 – Fetch user-specific products
+// Get user-specific products
+// Get user-specific products
 app.get("/api/products", (req, res) => {
   const userId = req.query.userId;
 
@@ -189,7 +200,11 @@ app.get("/api/products", (req, res) => {
     return res.status(400).json({ message: "Missing userId" });
   }
 
-  const sql = `SELECT *, CONCAT('http://localhost:8081/uploads/', image) AS image_url FROM products WHERE userId = ?`;
+  const sql = `
+    SELECT *, CONCAT('http://localhost:8081/uploads/', image) AS image_url 
+    FROM products 
+    WHERE userId = ?
+  `;
 
   db.query(sql, [userId], (err, results) => {
     if (err) {
@@ -201,7 +216,8 @@ app.get("/api/products", (req, res) => {
   });
 });
 
-// DELETE /api/products/:id – Delete a product
+
+// Delete product
 app.delete("/api/products/:id", (req, res) => {
   const productId = req.params.id;
 
@@ -228,7 +244,46 @@ app.delete("/api/products/:id", (req, res) => {
   });
 });
 
-// Start the server
+// Get user profile by ID
+app.get("/api/user/:id", (req, res) => {
+  const userId = req.params.id;
+  const sql = `
+    SELECT id, name, phoneNumber AS phoneNumber, address, business 
+    FROM usertable 
+    WHERE id = ?
+  `;
+
+  db.query(sql, [userId], (err, results) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    if (results.length === 0) return res.status(404).json({ message: "User not found" });
+    res.json(results[0]);
+  });
+});
+
+// Update user profile
+app.put("/api/user/:id", (req, res) => {
+  const { name, phoneNumber, address, business } = req.body;
+  const { id } = req.params;
+
+  const sql = `
+    UPDATE usertable 
+    SET name = ?, phoneNumber = ?, address = ?, business = ? 
+    WHERE id = ?
+  `;
+
+  db.query(sql, [name, phoneNumber, address, business, id], (err, result) => {
+    if (err) {
+      console.error("Update error:", err);
+      return res.status(500).json({ error: "Update failed" });
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json({ message: "User updated successfully" });
+  });
+});
+
+// Start server
 app.listen(8081, () => {
   console.log("Backend listening on port 8081");
 });
